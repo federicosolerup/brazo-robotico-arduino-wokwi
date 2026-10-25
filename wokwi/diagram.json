@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "author": "Mateo Flores, Federico Soler",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-arduino-uno",
+      "id": "uno",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "servoBase",
+      "top": -150,
+      "left": 300,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "servoHombro",
+      "top": -40,
+      "left": 300,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn",
+      "top": 227,
+      "left": 297.6,
+      "attrs": {
+        "color": "green"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "servoBase:PWM",
+      "uno:9",
+      "orange",
+      []
+    ],
+    [
+      "servoBase:V+",
+      "uno:5V",
+      "red",
+      []
+    ],
+    [
+      "servoBase:GND",
+      "uno:GND.1",
+      "black",
+      []
+    ],
+    [
+      "servoHombro:PWM",
+      "uno:10",
+      "orange",
+      []
+    ],
+    [
+      "servoHombro:V+",
+      "uno:5V",
+      "red",
+      []
+    ],
+    [
+      "servoHombro:GND",
+      "uno:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btn:1.l",
+      "uno:2",
+      "green",
+      []
+    ],
+    [
+      "btn:2.l",
+      "uno:GND.2",
+      "black",
+      []
+    ]
+  ],
+  "dependencies": {}
+}

@@ -1,0 +1,15 @@
+{
+  "origen": "CSV importado · consignas angulares",
+  "ciclo": 1,
+  "muestras": 271,
+  "duracion_s": 5.488,
+  "configuraciones_en_orden": true,
+  "primera_consigna_objetivo_s": [
+    0.0,
+    1.394,
+    3.341,
+    5.165
+  ],
+  "hombro_fijo_en_tramo_2": true,
+  "regresa_a_90_90": true
+}
