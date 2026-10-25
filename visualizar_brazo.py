@@ -1,310 +1,299 @@
-"""Visualizacion cinematica de un brazo con giro de base y elevacion de hombro.
+"""Brazo de hombro y codo con movimientos articulares alternados.
 
-Uso local: python visualizar_brazo.py --csv datos/captura_wokwi.csv
-Sin --csv se usan datos teoricos, identificados como demostracion.
-El notebook incluye estas mismas funciones y funciona sin descargar este archivo.
+python visualizar_brazo.py --csv datos/captura_wokwi.csv --gif --mp4
+Sin --csv se utiliza una demostración teórica identificada como tal.
 """
 from pathlib import Path
 import argparse
 import csv
 import io
+import json
 import re
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from matplotlib.patches import Circle, Arc, Polygon, FancyBboxPatch
 
-PUNTOS = np.array([[90, 90], [30, 45], [150, 45], [90, 90]])
-ALTURA_CM = 8.0
-DESPLAZAMIENTO_CM = 3.0
-LARGO_CM = 18.0
-AZUL = '#176B9B'
-NARANJA = '#DC7137'
-TINTA = '#23384A'
-FONDO = '#F7F8FA'
-
-
-def datos_demostracion():
-    """Calcula un ejemplo teorico; NO es una captura del simulador."""
-    filas = []
-    reloj = 0
-    for i, (inicio, fin) in enumerate(zip(PUNTOS[:-1], PUNTOS[1:]), 1):
-        for ms in range(0, 1501, 20):
-            s = ms / 1500
-            # Aproxima la conversion de Servo.write a grados enteros.
-            q = (inicio + (fin - inicio) * (3*s*s - 2*s*s*s)).astype(int)
-            filas.append([1, reloj + ms, *q, f'tramo_{i}'])
-        reloj += 1520  # El original hace delay(20) tambien al llegar al extremo.
-        for ms in range(0, 301, 20):
-            filas.append([1, reloj + ms, *fin, f'pausa_{i}'])
-        reloj += 300
-    filas.append([1, reloj, 90, 90, 'fin'])
-    texto = io.StringIO()
-    w = csv.writer(texto, lineterminator='\n')
-    w.writerow(['ciclo', 'tiempo_ms', 'base_deg', 'hombro_deg', 'fase'])
-    w.writerows(filas)
-    return cargar_csv(texto.getvalue(), origen='DEMOSTRACION TEORICA · sin captura de Wokwi')
+PUNTOS = np.array([[30, 30], [75, 30], [75, 90], [30, 90], [30, 30]])
+FASES = ['hombro_1', 'codo_2', 'hombro_3', 'codo_4']
+ALTURA_CM = 12.0
+HUMERO_CM = 18.0
+ANTEBRAZO_CM = 15.0
+AZUL = '#1C6DA1'
+NARANJA = '#DA7841'
+VERDE = '#17846B'
+TINTA = '#21394A'
+GRIS = '#738795'
+FONDO = '#F6F8FA'
 
 
-def cargar_csv(texto, ciclo=None, origen='CSV importado · consignas angulares'):
-    """Lee la salida serial. Conserva la ultima sesion y el ultimo ciclo elegible.
-
-    Acepta comentarios #, encabezados repetidos y tiempos duplicados. Ante un
-    reinicio del simulador, un nuevo encabezado separa las sesiones. Nunca ordena
-    tiempos descendentes para ocultar un registro mezclado o corrupto.
-    """
+def cargar_csv(texto, ciclo=None, origen='CSV importado · consignas de Arduino'):
+    """Lee encabezados seriales, reinicios, comentarios y varios ciclos."""
     ansi = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
-    registros = {}
-    encabezado = None
-    sesion = -1
-    requeridas = {'tiempo_ms', 'base_deg', 'hombro_deg'}
+    requeridas = {'tiempo_ms', 'hombro_deg', 'codo_deg'}
+    encabezado, sesion, grupos = None, -1, {}
     for numero, linea in enumerate(texto.splitlines(), 1):
         linea = ansi.sub('', linea).strip().lstrip('\ufeff')
         if not linea or linea.startswith('#'):
             continue
-        campos = next(csv.reader([linea]))
-        campos = [v.strip() for v in campos]
+        campos = [v.strip() for v in next(csv.reader([linea]))]
         if requeridas.issubset(campos):
-            encabezado = campos
-            sesion += 1
+            encabezado, sesion = campos, sesion+1
             continue
         if encabezado is None:
-            # Permite copiar mensajes de arranque anteriores al encabezado.
             continue
         if len(campos) != len(encabezado):
-            raise ValueError(f'Linea {numero}: faltan columnas o la fila esta incompleta.')
+            raise ValueError(f'Línea {numero}: fila incompleta.')
         fila = dict(zip(encabezado, campos))
         try:
             c = int(fila.get('ciclo', '1'))
-            t, b, h = [float(fila[k]) for k in ['tiempo_ms', 'base_deg', 'hombro_deg']]
+            t, h, e = [float(fila[k]) for k in ['tiempo_ms', 'hombro_deg', 'codo_deg']]
         except ValueError as exc:
-            raise ValueError(f'Linea {numero}: tiempo o angulos no numericos.') from exc
-        if not np.isfinite([t, b, h]).all() or t < 0 or not (0 <= b <= 180 and 0 <= h <= 180):
-            raise ValueError(f'Linea {numero}: tiempo o angulos fuera de rango.')
-        registros.setdefault((sesion, c), []).append((t, b, h, fila.get('fase', 'registro')))
-    elegibles = [k for k in registros if ciclo is None or k[1] == ciclo]
+            raise ValueError(f'Línea {numero}: valores no numéricos.') from exc
+        if not np.isfinite([t, h, e]).all() or t < 0 or not (0 <= h <= 180 and 0 <= e <= 180):
+            raise ValueError(f'Línea {numero}: valores fuera de rango.')
+        grupos.setdefault((sesion, c), []).append((t, h, e, fila.get('fase', 'registro')))
+    elegibles = [k for k in grupos if ciclo is None or k[1] == ciclo]
     if not elegibles:
-        raise ValueError('No hay registros validos. Copiar el encabezado y un ciclo completo.')
+        raise ValueError('Falta una captura válida: usar tiempo_ms,hombro_deg,codo_deg y un ciclo completo.')
     clave = elegibles[-1]
-    filas = registros[clave]
+    filas = grupos[clave]
     if any(b[0] < a[0] for a, b in zip(filas, filas[1:])):
         raise ValueError('El tiempo retrocede dentro de un ciclo. Revisar la captura.')
-    # Varias consignas en el mismo ms: queda vigente la ultima de ese instante.
-    unicas = {f[0]: f for f in filas}
-    filas = list(unicas.values())
+    # No ocultar un cambio simultáneo ocurrido incluso en dos filas del mismo ms.
+    originales = np.array([f[:3] for f in filas], dtype=float)
+    cambios = np.abs(np.diff(originales[:, 1:3], axis=0)) > 1e-9
+    if np.any(cambios[:, 0] & cambios[:, 1]):
+        raise ValueError('La captura contiene cambios simultáneos de hombro y codo.')
+    filas = list({f[0]: f for f in filas}.values())
     if len(filas) < 2:
         raise ValueError('Se necesitan al menos dos instantes distintos.')
-    valores = np.array([f[:3] for f in filas], dtype=float)
-    return {
-        't': (valores[:, 0] - valores[0, 0]) / 1000,
-        'base': valores[:, 1], 'hombro': valores[:, 2],
-        'fase': np.array([f[3] for f in filas]),
-        'origen': origen, 'ciclo': clave[1], 'sesion': clave[0] + 1,
-    }
+    v = np.array([f[:3] for f in filas], dtype=float)
+    return {'t': (v[:, 0]-v[0, 0])/1000, 'hombro': v[:, 1], 'codo': v[:, 2],
+            'fase': np.array([f[3] for f in filas]), 'origen': origen,
+            'ciclo': clave[1], 'sesion': clave[0]+1}
 
 
-def cinematica(base, hombro, altura=ALTURA_CM, offset=DESPLAZAMIENTO_CM, largo=LARGO_CM):
-    """Modelo Rz(phi) · Tx(offset) · Tz(altura) · Ry(-beta) · Tx(largo).
+def datos_demostracion():
+    """Calcula datos de ejemplo; no son una ejecución del simulador."""
+    filas, reloj = [], 0
+    for i, (a, b) in enumerate(zip(PUNTOS[:-1], PUNTOS[1:])):
+        for ms in range(0, 1501, 20):
+            s = ms/1500
+            q = (a+(b-a)*(3*s*s-2*s*s*s)).astype(int)
+            filas.append([1, reloj+ms, *q, FASES[i]])
+        reloj += 1520
+        for ms in range(0, 301, 20):
+            filas.append([1, reloj+ms, *b, f'pausa_{i+1}'])
+        reloj += 300
+    filas.append([1, reloj, 30, 30, 'fin'])
+    texto = io.StringIO()
+    w = csv.writer(texto, lineterminator='\n')
+    w.writerow(['ciclo', 'tiempo_ms', 'hombro_deg', 'codo_deg', 'fase'])
+    w.writerows(filas)
+    return cargar_csv(texto.getvalue(), origen='DEMOSTRACIÓN TEÓRICA · sin captura de Wokwi')
 
-    phi = 90 - base (90 grados es el frente +X); beta = hombro, medido
-    desde la horizontal. +Y corresponde al lado izquierdo del robot.
-    Las longitudes son ilustrativas y el offset es un eslabon fijo.
+
+def cinematica(hombro, codo, altura=ALTURA_CM, humero=HUMERO_CM, antebrazo=ANTEBRAZO_CM):
+    """Cinemática 2R en el plano vertical XZ, con hombro fijo en (0, altura).
+
+    Hombro: ángulo absoluto del húmero respecto de +X.
+    Codo: flexión relativa entre húmero prolongado y antebrazo; 0° = extendido.
     """
-    phi, beta = np.deg2rad(90 - np.asarray(base)), np.deg2rad(hombro)
-    hombro_xyz = np.stack([offset*np.cos(phi), offset*np.sin(phi),
-                          np.broadcast_to(altura, np.shape(phi))], axis=-1)
-    extremo = hombro_xyz + np.stack([largo*np.cos(beta)*np.cos(phi),
-                                    largo*np.cos(beta)*np.sin(phi),
-                                    largo*np.sin(beta)], axis=-1)
-    return hombro_xyz, extremo
+    q1, q2 = np.broadcast_arrays(np.deg2rad(hombro), np.deg2rad(codo))
+    e = np.stack([humero*np.cos(q1), altura+humero*np.sin(q1)], axis=-1)
+    w = e+np.stack([antebrazo*np.cos(q1+q2), antebrazo*np.sin(q1+q2)], axis=-1)
+    return e, w
 
 
-def informe(datos):
-    """Verifica las consignas registradas contra la secuencia del TP."""
-    q = np.column_stack([datos['base'], datos['hombro']])
-    encontrados = []
-    cursor = 0
-    for punto in PUNTOS:
-        indices = np.flatnonzero(np.all(np.isclose(q[cursor:], punto), axis=1))
+def verificar_independencia(datos):
+    q = np.column_stack([datos['hombro'], datos['codo']])
+    cambios = np.abs(np.diff(q, axis=0)) > 1e-9
+    simultaneos = int(np.sum(cambios[:, 0] & cambios[:, 1]))
+    tramos = {}
+    for i, fase in enumerate(FASES):
+        sel = np.flatnonzero(datos['fase'] == fase)
+        activo = 0 if fase.startswith('hombro') else 1
+        correcto = len(sel) > 1 and bool(np.allclose(q[sel, 1-activo], PUNTOS[i, 1-activo]))
+        correcto = correcto and bool(np.allclose(q[sel[0]], PUNTOS[i])) and bool(np.allclose(q[sel[-1]], PUNTOS[i+1])) if len(sel) else False
+        tramos[fase] = {'articulacion_activa': 'hombro' if activo == 0 else 'codo',
+                        'otra_articulacion_fija_y_extremos_correctos': bool(correcto)}
+    cursor, encontrados = 0, []
+    for objetivo in PUNTOS:
+        indices = np.flatnonzero(np.all(np.isclose(q[cursor:], objetivo), axis=1))
         if not len(indices):
             break
-        cursor += int(indices[0])
-        encontrados.append(float(datos['t'][cursor]))
-        cursor += 1
-    segundo = datos['fase'] == 'tramo_2'
-    fijo = bool(np.allclose(datos['hombro'][segundo], 45)) if segundo.any() else None
-    return {
-        'origen': datos['origen'], 'ciclo': datos['ciclo'],
-        'muestras': len(q), 'duracion_s': round(float(datos['t'][-1]), 3),
-        'configuraciones_en_orden': len(encontrados) == 4,
-        'primera_consigna_objetivo_s': encontrados,
-        'hombro_fijo_en_tramo_2': fijo,
-        'regresa_a_90_90': bool(np.allclose(q[-1], [90, 90])),
-    }
+        cursor += int(indices[0]); encontrados.append(float(datos['t'][cursor])); cursor += 1
+    return {'origen': datos['origen'], 'muestras': len(q),
+            'duracion_s': round(float(datos['t'][-1]), 3),
+            'cambios_simultaneos': simultaneos,
+            'articulaciones_independientes': simultaneos == 0,
+            'configuraciones_en_orden': len(encontrados) == 5,
+            'regresa_a_reposo': bool(np.allclose(q[-1], PUNTOS[0])), 'tramos': tramos}
 
 
-def crear_animacion(datos, fps=25):
-    """Devuelve figura y animacion. Mantiene cada consigna hasta la siguiente."""
+def crear_animacion(datos, fps=20):
     if not 1 <= fps <= 60:
-        raise ValueError('Elegir una frecuencia entre 1 y 60 cuadros por segundo.')
+        raise ValueError('FPS debe estar entre 1 y 60.')
+    r = verificar_independencia(datos)
+    if r['cambios_simultaneos']:
+        raise ValueError('Este proyecto requiere una articulación por vez.')
     plt.rcParams.update({'font.family': 'DejaVu Sans', 'font.size': 10,
                          'text.color': TINTA, 'axes.labelcolor': TINTA,
-                         'xtick.color': TINTA, 'ytick.color': TINTA})
-    fig = plt.figure(figsize=(13.6, 7.7), facecolor=FONDO)
-    fig.text(.045, .935, 'Brazo robótico', fontsize=25, weight='bold')
-    fig.text(.045, .895, 'GRUPO 3   /   Mateo Flores · Federico Soler', fontsize=10, color='#617486')
-    fig.text(.955, .933, '2 GRADOS DE LIBERTAD', ha='right', fontsize=11, weight='bold', color=AZUL)
-    fig.text(.955, .895, datos['origen'], ha='right', fontsize=9, color='#617486')
-    ax = fig.add_axes([.025, .17, .59, .69], projection='3d', facecolor=FONDO)
-    ax.view_init(elev=22, azim=40)
-    ax.set(xlim=(-7, 24), ylim=(-21, 21), zlim=(0, 29),
-           xlabel='X · frente (cm)', ylabel='Y · izquierda (cm)', zlabel='Z (cm)')
-    ax.set_box_aspect((31, 42, 29))
-    ax.set_xticks([0, 10, 20]); ax.set_yticks([-20, 0, 20]); ax.set_zticks([0, 10, 20])
-    ax.tick_params(labelsize=8, pad=0)
-    for eje in [ax.xaxis, ax.yaxis, ax.zaxis]:
-        eje.pane.fill = False
-        eje.pane.set_edgecolor('#DAE1E7')
-        eje._axinfo['grid']['color'] = '#E0E6EC'
-    a = np.linspace(0, 2*np.pi, 40)
-    z = np.array([0, ALTURA_CM - .8])
-    xx = 3.4 * np.cos(a)[None, :] * np.ones((2, 1))
-    yy = 3.4 * np.sin(a)[None, :] * np.ones((2, 1))
-    zz = np.broadcast_to(z[:, None], xx.shape)
-    ax.plot_surface(xx, yy, zz, color='#9AAAB6', alpha=.85, linewidth=0, shade=True)
-    ax.plot(4.4*np.cos(a), 4.4*np.sin(a), np.full_like(a, ALTURA_CM),
-            color='#ABB9C5', ls='--', lw=1)
-    hombros, extremos = cinematica(datos['base'], datos['hombro'])
-    _, objetivos = cinematica(PUNTOS[:, 0], PUNTOS[:, 1])
-    for i, punto in enumerate(objetivos[:3]):
-        ax.scatter(*punto, s=24, color='#A7B5C0', depthshade=False)
-        ax.text(punto[0], punto[1], punto[2]+1.1, ['P0 / P3', 'P1', 'P2'][i],
-                fontsize=9, color='#708596')
-    ax.plot(extremos[:, 0], extremos[:, 1], extremos[:, 2], color='#D6E0E7', lw=1.2)
-    (rastro,) = ax.plot([], [], [], color=AZUL, alpha=.65, lw=2)
-    (soporte,) = ax.plot([], [], [], color=NARANJA, lw=7, solid_capstyle='round')
-    (brazo,) = ax.plot([], [], [], color=AZUL, lw=13, solid_capstyle='round')
-    (juntas,) = ax.plot([], [], [], 'o', color=NARANJA, ms=10, mec='white', mew=2)
-    (punta,) = ax.plot([], [], [], 'o', color=AZUL, ms=8, mec='white', mew=2)
-    (proyeccion,) = ax.plot([], [], [], color='#B5C6D1', ls=':', lw=1)
-    plataforma = Poly3DCollection([], facecolors=NARANJA, edgecolors='white', alpha=.8)
-    ax.add_collection3d(plataforma)
-
-    graf = fig.add_axes([.67, .39, .29, .33], facecolor='white')
-    graf.plot(datos['t'], datos['base'], color=AZUL, lw=2, drawstyle='steps-post', label='Base · D9')
-    graf.plot(datos['t'], datos['hombro'], color=NARANJA, lw=2, drawstyle='steps-post', label='Hombro · D10')
-    graf.set(xlim=(0, max(float(datos['t'][-1]), .1)), ylim=(20, 165), xlabel='Tiempo (s)', ylabel='Consigna (°)')
-    graf.set_yticks([30, 45, 90, 150]); graf.grid(alpha=.15)
+                         'xtick.color': GRIS, 'ytick.color': GRIS})
+    fig = plt.figure(figsize=(14, 8), facecolor=FONDO)
+    fig.text(.045, .94, 'Hombro y codo', fontsize=28, weight='bold')
+    fig.text(.045, .9, 'GRUPO 3   /   Mateo Flores · Federico Soler', fontsize=10, color=GRIS)
+    fig.text(.955, .943, 'UNA ARTICULACIÓN POR VEZ', ha='right', fontsize=12, weight='bold', color=VERDE)
+    fig.text(.955, .903, datos['origen'], ha='right', fontsize=9, color=GRIS)
+    ax = fig.add_axes([.045, .19, .56, .64], facecolor=FONDO)
+    ax.set(xlim=(-22, 35), ylim=(0, 48), xlabel='Alcance horizontal · X (cm)', ylabel='Altura · Z (cm)')
+    ax.set_aspect('equal'); ax.set_xticks([-20, 0, 10, 20, 30]); ax.set_yticks([0, 12, 24, 36, 48])
+    ax.grid(color='#E2E8ED', lw=.7, zorder=0)
+    ax.spines[['top', 'right']].set_visible(False)
+    # Torso y cabeza fijos: no hay una plataforma ni giro de base.
+    ax.add_patch(Polygon([(-7, 0), (-8, 13), (-5, 17), (-2, 16), (0, 12), (-1.5, 0)],
+                         facecolor='#DCE3E9', edgecolor='#B6C3CE', lw=1.3, zorder=2))
+    ax.add_patch(Circle((-5.1, 21), 3, facecolor='#E5EBEF', edgecolor='#B6C3CE', lw=1.3))
+    ax.text(-7, 4, 'Torso\nfijo', fontsize=9, color=GRIS, ha='center')
+    ax.plot([-15, 30], [0, 0], color='#B6C3CE', lw=2)
+    e, w = cinematica(datos['hombro'], datos['codo'])
+    ax.plot(w[:, 0], w[:, 1], color='#D0DDE5', lw=1.2, zorder=1)
+    (rastro,) = ax.plot([], [], color=VERDE, lw=1.6, alpha=.65, zorder=2)
+    (humero_borde,) = ax.plot([], [], color='white', lw=24, solid_capstyle='round', zorder=3)
+    (humero,) = ax.plot([], [], color=AZUL, lw=18, solid_capstyle='round', zorder=4)
+    (ante_borde,) = ax.plot([], [], color='white', lw=22, solid_capstyle='round', zorder=3)
+    (antebrazo,) = ax.plot([], [], color=NARANJA, lw=16, solid_capstyle='round', zorder=4)
+    aro_h = Circle((0, ALTURA_CM), 1.7, facecolor='white', edgecolor=AZUL, lw=2.5, zorder=6)
+    aro_c = Circle((0, 0), 1.6, facecolor='white', edgecolor=NARANJA, lw=2.5, zorder=6)
+    ax.add_patch(aro_h); ax.add_patch(aro_c)
+    ax.plot([0], [ALTURA_CM], 'o', color=AZUL, ms=5, zorder=7)
+    (centro_c,) = ax.plot([], [], 'o', color=NARANJA, ms=5, zorder=7)
+    (muneca,) = ax.plot([], [], 'o', ms=10, color=VERDE, mec='white', mew=2, zorder=7)
+    arco_h = Arc((0, ALTURA_CM), 11, 11, theta1=0, theta2=30, color=AZUL, lw=1.5)
+    arco_c = Arc((0, 0), 9, 9, theta1=30, theta2=60, color=NARANJA, lw=1.5)
+    ax.add_patch(arco_h); ax.add_patch(arco_c)
+    (referencia,) = ax.plot([], [], color=NARANJA, ls=':', lw=1, zorder=1)
+    h_label = ax.annotate('HÚMERO', xy=(0, 0), xytext=(-18, 31), fontsize=10,
+                          color=AZUL, weight='bold', zorder=9,
+                          arrowprops={'arrowstyle': '-', 'color': AZUL, 'lw': .9})
+    a_label = ax.annotate('ANTEBRAZO', xy=(0, 0), xytext=(20, 45), fontsize=10,
+                          color=NARANJA, weight='bold', ha='center', zorder=9,
+                          arrowprops={'arrowstyle': '-', 'color': NARANJA, 'lw': .9})
+    c_label = ax.text(0, 0, 'Codo · D10', fontsize=9, color=TINTA)
+    w_label = ax.text(0, 0, 'Muñeca\nEfector final', fontsize=9, color=VERDE)
+    ax.annotate('Hombro · D9', (0, ALTURA_CM), (-17, 9), fontsize=9, color=TINTA,
+                arrowprops={'arrowstyle': '-', 'color': GRIS, 'lw': .8})
+    graf = fig.add_axes([.66, .415, .30, .285], facecolor='white')
+    graf.plot(datos['t'], datos['hombro'], color=AZUL, lw=2.3, drawstyle='steps-post', label='Hombro · D9')
+    graf.plot(datos['t'], datos['codo'], color=NARANJA, lw=2.3, drawstyle='steps-post', label='Codo · D10')
+    graf.set(xlim=(0, max(float(datos['t'][-1]), .1)), ylim=(20, 105),
+             xlabel='Tiempo (s)', ylabel='Ángulo articular (°)')
+    graf.set_yticks([30, 60, 75, 90]); graf.grid(alpha=.13)
     graf.spines[['top', 'right']].set_visible(False)
     graf.legend(frameon=False, loc='upper left', fontsize=9)
-    cursor = graf.axvline(0, color=TINTA, lw=1.1, ls='--')
-    (punto_b,) = graf.plot([], [], 'o', color=AZUL, ms=6)
-    (punto_h,) = graf.plot([], [], 'o', color=NARANJA, ms=6)
-    estado = fig.text(.67, .81, '', fontsize=15, weight='bold')
-    reloj = fig.text(.67, .765, '', fontsize=11, color='#617486')
-    angulos = fig.text(.67, .295, '', fontsize=16, weight='bold')
-    posicion = fig.text(.67, .25, '', fontsize=10, color='#617486')
-    fig.text(.045, .105, 'MODELO CINEMÁTICO', fontsize=9, weight='bold', color=AZUL)
-    fig.text(.045, .074, 'Base giratoria + hombro + un eslabón móvil. Dimensiones ilustrativas: h = 8 cm, d = 3 cm, L = 18 cm.', fontsize=9)
-    fig.text(.045, .044, 'Se representan consignas de posición; el modelo no calcula cargas, torque ni error de seguimiento.', fontsize=9, color='#617486')
-    nombres = {'inicio': 'P0 · Reposo', 'tramo_1': '01 · Hacia P1', 'pausa_1': 'P1 · Pausa',
-               'tramo_2': '02 · Giro con hombro fijo', 'pausa_2': 'P2 · Pausa',
-               'tramo_3': '03 · Regreso a P0', 'pausa_3': 'P3 · Reposo final', 'fin': 'Secuencia completa'}
-    instantes = np.arange(0, datos['t'][-1], 1/fps)
-    instantes = np.r_[instantes, datos['t'][-1]]
+    cursor = graf.axvline(0, color=TINTA, ls='--', lw=1)
+    (p_h,) = graf.plot([], [], 'o', ms=6, color=AZUL)
+    (p_c,) = graf.plot([], [], 'o', ms=6, color=NARANJA)
+    estado = fig.text(.66, .82, '', fontsize=16, weight='bold')
+    detalle = fig.text(.66, .78, '', fontsize=10, color=GRIS)
+    reloj = fig.text(.66, .735, '', fontsize=10, color=GRIS)
+    angulos = fig.text(.66, .32, '', fontsize=17, weight='bold')
+    fig.add_artist(FancyBboxPatch((.655, .215), .305, .06, transform=fig.transFigure,
+                                 boxstyle='round,pad=0.012', facecolor='#E6F2ED', edgecolor='none'))
+    fig.text(.67, .238, 'CAMBIOS SIMULTÁNEOS: 0', color=VERDE, fontsize=11, weight='bold')
+    fig.text(.045, .12, 'HOMBRO → HÚMERO → CODO → ANTEBRAZO → MUÑECA', color=TINTA, fontsize=10, weight='bold')
+    fig.text(.045, .079, 'Vista lateral · plano vertical. El codo se mide respecto del húmero; 0° significa brazo extendido.', color=GRIS, fontsize=9)
+    fig.text(.045, .047, 'Dimensiones ilustrativas: húmero 18 cm y antebrazo 15 cm. La muñeca es el efector, sin otro actuador.', color=GRIS, fontsize=9)
+    instantes = np.r_[np.arange(0, datos['t'][-1], 1/fps), datos['t'][-1]]
 
     def actualizar(t):
-        i = min(int(np.searchsorted(datos['t'], t, side='right')-1), len(datos['t'])-1)
-        i = max(i, 0)
-        s, e = hombros[i], extremos[i]
-        phi = np.deg2rad(90-datos['base'][i])
-        u = np.array([np.cos(phi), np.sin(phi), 0.])
-        v = np.array([-np.sin(phi), np.cos(phi), 0.])
-        centro = np.array([0., 0., ALTURA_CM])
-        plataforma.set_verts([[centro+du*u+dv*v for du, dv in [(-2,-1.5),(4,-1.5),(4,1.5),(-2,1.5)]]])
-        soporte.set_data_3d([0, s[0]], [0, s[1]], [ALTURA_CM, s[2]])
-        brazo.set_data_3d([s[0], e[0]], [s[1], e[1]], [s[2], e[2]])
-        juntas.set_data_3d([s[0]], [s[1]], [s[2]])
-        punta.set_data_3d([e[0]], [e[1]], [e[2]])
-        rastro.set_data_3d(extremos[:i+1, 0], extremos[:i+1, 1], extremos[:i+1, 2])
-        proyeccion.set_data_3d([e[0], e[0]], [e[1], e[1]], [0, e[2]])
-        cursor.set_xdata([t, t])
-        punto_b.set_data([t], [datos['base'][i]])
-        punto_h.set_data([t], [datos['hombro'][i]])
-        estado.set_text(nombres.get(datos['fase'][i], 'Reproducción del registro'))
-        reloj.set_text(f't = {t:0.2f} s   /   {datos["t"][-1]:0.2f} s')
-        angulos.set_text(f'Base {datos["base"][i]:.0f}°    Hombro {datos["hombro"][i]:.0f}°')
-        posicion.set_text(f'Extremo (cm):  x {e[0]:.1f}   y {e[1]:.1f}   z {e[2]:.1f}')
-        return brazo, soporte, juntas, punta, rastro, cursor, estado
+        i = max(0, min(int(np.searchsorted(datos['t'], t, side='right')-1), len(datos['t'])-1))
+        elbow, wrist = e[i], w[i]
+        q1, q2 = datos['hombro'][i], datos['codo'][i]
+        fase = datos['fase'][i]
+        h_activo, c_activo = fase.startswith('hombro_'), fase.startswith('codo_')
+        for line in [humero_borde, humero]: line.set_data([0, elbow[0]], [ALTURA_CM, elbow[1]])
+        for line in [ante_borde, antebrazo]: line.set_data([elbow[0], wrist[0]], [elbow[1], wrist[1]])
+        aro_c.center = elbow
+        aro_h.set_linewidth(4 if h_activo else 2)
+        aro_c.set_linewidth(4 if c_activo else 2)
+        centro_c.set_data([elbow[0]], [elbow[1]])
+        muneca.set_data([wrist[0]], [wrist[1]])
+        rastro.set_data(w[:i+1, 0], w[:i+1, 1])
+        arco_h.theta2 = q1
+        arco_c.center = elbow; arco_c.theta1 = q1; arco_c.theta2 = q1+q2
+        u = np.array([np.cos(np.deg2rad(q1)), np.sin(np.deg2rad(q1))])
+        referencia.set_data([elbow[0], elbow[0]+5*u[0]], [elbow[1], elbow[1]+5*u[1]])
+        h_label.xy = (elbow[0]/2, (ALTURA_CM+elbow[1])/2)
+        a_label.xy = ((elbow[0]+wrist[0])/2, (elbow[1]+wrist[1])/2)
+        c_label.set_position((elbow[0]+2, elbow[1]-2))
+        w_label.set_position((wrist[0]+2, wrist[1]-.5))
+        cursor.set_xdata([t, t]); p_h.set_data([t], [q1]); p_c.set_data([t], [q2])
+        if h_activo:
+            estado.set_text('Mueve el hombro'); estado.set_color(AZUL)
+            detalle.set_text(f'Codo fijo en {q2:.0f}° · acompaña al húmero')
+        elif c_activo:
+            estado.set_text('Mueve el codo'); estado.set_color(NARANJA)
+            detalle.set_text(f'Hombro fijo en {q1:.0f}° · húmero quieto')
+        else:
+            estado.set_text('Reposo final' if fase == 'fin' else 'Pausa · ambas articulaciones fijas')
+            estado.set_color(TINTA); detalle.set_text('Se mantienen las dos consignas angulares')
+        reloj.set_text(f't = {t:.2f} s   /   {datos["t"][-1]:.2f} s')
+        angulos.set_text(f'Hombro {q1:.0f}°    Codo {q2:.0f}°')
+        return humero, antebrazo, muneca, cursor, estado
 
     actualizar(0)
     anim = FuncAnimation(fig, actualizar, frames=instantes, interval=1000/fps, blit=False, repeat=False)
-    # Permite guardar capturas de instantes concretos sin recalcular otra escena.
     anim.actualizar_instante = actualizar
     return fig, anim
 
 
-def guardar_html(anim, destino, fps=25):
-    plt.rcParams['animation.embed_limit'] = 80
-    with plt.rc_context({'animation.frame_format': 'jpeg', 'savefig.dpi': 90}):
+def guardar_html(anim, destino, fps=20):
+    with plt.rc_context({'animation.frame_format': 'jpeg', 'savefig.dpi': 90, 'animation.embed_limit': 80}):
         reproductor = anim.to_jshtml(fps=fps, default_mode='once')
-    # Los cuadros y el JS quedan embebidos. Sustituye los iconos de un CDN
-    # por caracteres locales para que el reproductor funcione sin internet.
     reproductor = re.sub(r'<link rel="stylesheet"[^>]*font-awesome[^>]*>', '', reproductor)
     reproductor = reproductor.replace('<i class="fa fa-play fa-flip-horizontal"></i>', '◀')
     iconos = {'fa-fast-backward': '⏮', 'fa-step-backward': '◀', 'fa-backward': '◁',
-              'fa-pause': 'Ⅱ', 'fa-play': '▶', 'fa-forward': '▷',
-              'fa-step-forward': '▶', 'fa-fast-forward': '⏭',
+              'fa-pause': 'Ⅱ', 'fa-play': '▶', 'fa-step-forward': '▶', 'fa-fast-forward': '⏭',
               'fa-minus': '−', 'fa-plus': '+'}
-    for clase, simbolo in iconos.items():
-        reproductor = reproductor.replace(f'<i class="fa {clase}"></i>', simbolo)
+    for k, v in iconos.items(): reproductor = reproductor.replace(f'<i class="fa {k}"></i>', v)
     pagina = ('<!doctype html><html lang="es"><meta charset="utf-8">'
               '<meta name="viewport" content="width=device-width, initial-scale=1">'
-              '<title>Brazo robótico · Grupo 3</title>'
-              '<style>body{margin:0;background:#F7F8FA;font-family:Arial,sans-serif}'
-              '.animation{margin:0 auto;max-width:1360px}.animation img{max-width:100%;height:auto}'
-              'button,input,select{font-size:15px}</style>' + reproductor + '</html>')
+              '<title>Hombro y codo · movimientos independientes</title>'
+              '<style>body{margin:0;background:#F6F8FA;font-family:Arial,sans-serif}'
+              '.animation{margin:auto;max-width:1400px}.animation img{max-width:100%;height:auto}'
+              'button,input,select{font-size:15px}</style>'+reproductor+'</html>')
     Path(destino).write_text(pagina, encoding='utf-8')
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--csv', type=Path, help='Registro serial con encabezado CSV.')
-    parser.add_argument('--ciclo', type=int, help='Ciclo a visualizar; por defecto el ultimo.')
-    parser.add_argument('--salida', type=Path, default=Path(__file__).resolve().parent/'salidas')
-    parser.add_argument('--gif', action='store_true')
-    parser.add_argument('--mp4', action='store_true', help='Requiere ffmpeg en PATH.')
-    parser.add_argument('--fps', type=int, default=25)
-    args = parser.parse_args()
-    if args.csv:
-        datos = cargar_csv(args.csv.read_text(encoding='utf-8-sig'), ciclo=args.ciclo,
-                           origen='Registro CSV · consignas del programa Arduino')
-    else:
-        datos = datos_demostracion()
-    print(informe(datos))
-    args.salida.mkdir(parents=True, exist_ok=True)
-    fig, anim = crear_animacion(datos, fps=args.fps)
-    guardar_html(anim, args.salida/'brazo_interactivo.html', fps=args.fps)
-    # Capturas durante las pausas, si el registro contiene las fases del sketch.
-    q = np.column_stack([datos['base'], datos['hombro']])
-    inicio = 0
-    for n, punto in enumerate(PUNTOS):
-        indices = np.flatnonzero(np.all(np.isclose(q[inicio:], punto), axis=1))
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--csv', type=Path)
+    p.add_argument('--ciclo', type=int)
+    p.add_argument('--salida', type=Path, default=Path(__file__).resolve().parent/'salidas')
+    p.add_argument('--gif', action='store_true'); p.add_argument('--mp4', action='store_true')
+    p.add_argument('--fps', type=int, default=20)
+    a = p.parse_args()
+    d = cargar_csv(a.csv.read_text(encoding='utf-8-sig'), ciclo=a.ciclo,
+                   origen='Captura Wokwi · hombro y codo') if a.csv else datos_demostracion()
+    r = verificar_independencia(d)
+    print(json.dumps(r, ensure_ascii=False, indent=2))
+    a.salida.mkdir(exist_ok=True, parents=True)
+    (a.salida.parent/'datos').mkdir(exist_ok=True)
+    (a.salida.parent/'datos/verificacion.json').write_text(json.dumps(r, ensure_ascii=False, indent=2), encoding='utf-8')
+    fig, anim = crear_animacion(d, fps=a.fps)
+    guardar_html(anim, a.salida/'brazo_interactivo.html', fps=a.fps)
+    for i, fase in enumerate(['inicio', 'pausa_1', 'pausa_2', 'pausa_3', 'fin']):
+        indices = np.flatnonzero(d['fase'] == fase)
         if len(indices):
-            fase = ['inicio', 'pausa_1', 'pausa_2', 'fin'][n]
-            candidatos = np.flatnonzero((datos['fase'] == fase) &
-                                        np.all(np.isclose(q, punto), axis=1))
-            i = int(candidatos[0]) if len(candidatos) else inicio + int(indices[0])
-            anim.actualizar_instante(datos['t'][i])
-            fig.savefig(args.salida/f'P{n}.png', dpi=140, facecolor=fig.get_facecolor())
-            inicio = i+1
-    if args.gif:
-        anim.save(args.salida/'brazo.gif', writer=PillowWriter(fps=args.fps), dpi=85)
-    if args.mp4:
-        anim.save(args.salida/'brazo.mp4', writer=FFMpegWriter(fps=args.fps, bitrate=1800), dpi=100)
+            anim.actualizar_instante(d['t'][indices[0]])
+            fig.savefig(a.salida/f'P{i}.png', dpi=125, facecolor=fig.get_facecolor())
+    anim.actualizar_instante(2.6)
+    fig.savefig(a.salida/'vista_previa.png', dpi=100, facecolor=fig.get_facecolor())
+    if a.gif: anim.save(a.salida/'brazo.gif', writer=PillowWriter(fps=a.fps), dpi=85)
+    if a.mp4: anim.save(a.salida/'brazo.mp4', writer=FFMpegWriter(fps=a.fps, bitrate=1800), dpi=100)
     plt.close(fig)
-    print(f'Archivos generados en {args.salida.resolve()}')
 
 
 if __name__ == '__main__':

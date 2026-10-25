@@ -1,15 +1,27 @@
 {
-  "origen": "CSV importado · consignas angulares",
-  "ciclo": 1,
-  "muestras": 271,
-  "duracion_s": 5.488,
+  "origen": "Captura Wokwi · hombro y codo",
+  "muestras": 363,
+  "duracion_s": 7.343,
+  "cambios_simultaneos": 0,
+  "articulaciones_independientes": true,
   "configuraciones_en_orden": true,
-  "primera_consigna_objetivo_s": [
-    0.0,
-    1.394,
-    3.341,
-    5.165
-  ],
-  "hombro_fijo_en_tramo_2": true,
-  "regresa_a_90_90": true
+  "regresa_a_reposo": true,
+  "tramos": {
+    "hombro_1": {
+      "articulacion_activa": "hombro",
+      "otra_articulacion_fija_y_extremos_correctos": true
+    },
+    "codo_2": {
+      "articulacion_activa": "codo",
+      "otra_articulacion_fija_y_extremos_correctos": true
+    },
+    "hombro_3": {
+      "articulacion_activa": "hombro",
+      "otra_articulacion_fija_y_extremos_correctos": true
+    },
+    "codo_4": {
+      "articulacion_activa": "codo",
+      "otra_articulacion_fija_y_extremos_correctos": true
+    }
+  }
 }

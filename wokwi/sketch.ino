@@ -1,60 +1,65 @@
 #include <Servo.h>
 
 // Grupo 3: Mateo Flores y Federico Soler.
-// Misma secuencia del TP. Se agrega registro de las consignas por Serial.
-Servo servoBase;
+// Brazo planar: hombro + humero + codo + antebrazo. Una articulacion por vez.
 Servo servoHombro;
+Servo servoCodo;
 const int PIN_BOTON = 2;
-const int PUNTOS[4][2] = {{90, 90}, {30, 45}, {150, 45}, {90, 90}};
 const unsigned long T = 1500;
 const unsigned long PASO_MS = 20;
-unsigned long inicioCiclo;
+const int PUNTOS[5][2] = {{30, 30}, {75, 30}, {75, 90}, {30, 90}, {30, 30}};
+int anguloHombro = 30;
+int anguloCodo = 30;
 unsigned int ciclo = 0;
-int anguloBase = 90;
-int anguloHombro = 90;
+unsigned long inicioCiclo;
 
 void registrar(const char *fase) {
-  // Se registran los enteros enviados a Servo.write(), no posiciones medidas.
+  // Son consignas de posicion, no mediciones de sensores.
   Serial.print(ciclo);
   Serial.print(',');
   Serial.print(millis() - inicioCiclo);
   Serial.print(',');
-  Serial.print(anguloBase);
-  Serial.print(',');
   Serial.print(anguloHombro);
+  Serial.print(',');
+  Serial.print(anguloCodo);
   Serial.print(',');
   Serial.println(fase);
 }
 
 void setup() {
-  servoBase.attach(9);
-  servoHombro.attach(10);
   pinMode(PIN_BOTON, INPUT_PULLUP);
-  servoBase.write(anguloBase);
+  // Inicializacion escalonada: el codo sigue desconectado mientras se ubica
+  // el hombro. No se ordenan dos desplazamientos iniciales a la vez.
+  servoHombro.attach(9);
   servoHombro.write(anguloHombro);
+  delay(T);
+  servoCodo.attach(10);
+  servoCodo.write(anguloCodo);
+  delay(T);
   Serial.begin(115200);
-  Serial.println("ciclo,tiempo_ms,base_deg,hombro_deg,fase");
+  Serial.println("ciclo,tiempo_ms,hombro_deg,codo_deg,fase");
+  Serial.println("# LISTO: presionar el pulsador");
 }
 
-void moverCubico(int b0, int h0, int bf, int hf,
-                 unsigned long duracion, const char *fase) {
+void moverUnaArticulacion(Servo &motor, int &anguloActual, int destino,
+                          const char *fase) {
+  // Esta funcion solo escribe en el servo recibido. La otra consigna se mantiene.
+  const int origen = anguloActual;
   unsigned long inicio = millis();
   float s = 0;
   while (s < 1.0) {
-    s = (millis() - inicio) / (float)duracion;
+    s = (millis() - inicio) / (float)T;
     if (s > 1.0) s = 1.0;
     float k = 3*s*s - 2*s*s*s;
-    // Misma conversion a int que realizaba implicitamente Servo.write().
-    anguloBase = b0 + (bf - b0) * k;
-    anguloHombro = h0 + (hf - h0) * k;
-    servoBase.write(anguloBase);
-    servoHombro.write(anguloHombro);
+    anguloActual = origen + (destino - origen) * k;
+    motor.write(anguloActual);
     registrar(fase);
     delay(PASO_MS);
   }
 }
 
-void pausaConRegistro(unsigned long duracion, const char *fase) {
+void pausaConRegistro(const char *fase) {
+  const unsigned long duracion = 300;
   unsigned long inicio = millis();
   while (millis() - inicio < duracion) {
     registrar(fase);
@@ -72,17 +77,16 @@ void loop() {
     ciclo++;
     inicioCiclo = millis();
     registrar("inicio");
-    const char *tramos[] = {"tramo_1", "tramo_2", "tramo_3"};
-    const char *pausas[] = {"pausa_1", "pausa_2", "pausa_3"};
-    for (int i = 0; i < 3; i++) {
-      moverCubico(PUNTOS[i][0], PUNTOS[i][1],
-                  PUNTOS[i+1][0], PUNTOS[i+1][1], T, tramos[i]);
-      // El original tambien hacia una pausa despues del tercer tramo.
-      pausaConRegistro(300, pausas[i]);
-    }
+    moverUnaArticulacion(servoHombro, anguloHombro, PUNTOS[1][0], "hombro_1");
+    pausaConRegistro("pausa_1");
+    moverUnaArticulacion(servoCodo, anguloCodo, PUNTOS[2][1], "codo_2");
+    pausaConRegistro("pausa_2");
+    moverUnaArticulacion(servoHombro, anguloHombro, PUNTOS[3][0], "hombro_3");
+    pausaConRegistro("pausa_3");
+    moverUnaArticulacion(servoCodo, anguloCodo, PUNTOS[4][1], "codo_4");
+    pausaConRegistro("pausa_4");
     registrar("fin");
     Serial.println("# FIN_CICLO");
-    // Mantener el boton presionado no repite la secuencia.
     while (digitalRead(PIN_BOTON) == LOW) delay(10);
   }
 }

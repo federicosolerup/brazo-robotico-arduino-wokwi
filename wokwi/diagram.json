@@ -12,14 +12,14 @@
     },
     {
       "type": "wokwi-servo",
-      "id": "servoBase",
+      "id": "servoHombro",
       "top": -150,
       "left": 300,
       "attrs": {}
     },
     {
       "type": "wokwi-servo",
-      "id": "servoHombro",
+      "id": "servoCodo",
       "top": -40,
       "left": 300,
       "attrs": {}
@@ -36,26 +36,8 @@
   ],
   "connections": [
     [
-      "servoBase:PWM",
-      "uno:9",
-      "orange",
-      []
-    ],
-    [
-      "servoBase:V+",
-      "uno:5V",
-      "red",
-      []
-    ],
-    [
-      "servoBase:GND",
-      "uno:GND.1",
-      "black",
-      []
-    ],
-    [
       "servoHombro:PWM",
-      "uno:10",
+      "uno:9",
       "orange",
       []
     ],
@@ -67,6 +49,24 @@
     ],
     [
       "servoHombro:GND",
+      "uno:GND.1",
+      "black",
+      []
+    ],
+    [
+      "servoCodo:PWM",
+      "uno:10",
+      "orange",
+      []
+    ],
+    [
+      "servoCodo:V+",
+      "uno:5V",
+      "red",
+      []
+    ],
+    [
+      "servoCodo:GND",
       "uno:GND.1",
       "black",
       []

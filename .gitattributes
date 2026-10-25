@@ -10,4 +10,5 @@
 *.mp4 binary
 # Preserve the exact captured wiring file for its recorded SHA-256.
 wokwi/diagram.json -text whitespace=cr-at-eol
+wokwi/sketch.ino -text whitespace=cr-at-eol
 salidas/** linguist-generated=true

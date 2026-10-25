@@ -1,119 +1,111 @@
-# Brazo robótico con Arduino, Wokwi y Python
+# Brazo de hombro y codo — movimientos independientes
 
 **Grupo 3 · Mateo Flores y Federico Soler**
 
 Introducción a la Robótica · Universidad de Palermo
 
-Control y visualización de un brazo con **dos grados de libertad**: giro de base y elevación de hombro. El programa de Arduino ejecutado en Wokwi registra sus consignas angulares; un notebook de Python reproduce esos datos como un brazo en 3D con gráficos sincronizados.
+Esta versión representa la cadena **hombro → húmero → codo → antebrazo → muñeca**, con dos servomotores y movimientos alternados. La muñeca es el efector final y no agrega una articulación motorizada.
 
 [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/federicosolerup/brazo-robotico-arduino-wokwi/blob/main/Brazo_Robotico_Grupo3.ipynb)
 
-## Demostración
+## Ver el resultado
 
-![Brazo animado y consignas angulares de la base y del hombro](salidas/brazo.gif)
+![Hombro y codo, una articulación por vez](salidas/brazo.gif)
 
-- **[Abrir el notebook en Google Colab](https://colab.research.google.com/github/federicosolerup/brazo-robotico-arduino-wokwi/blob/main/Brazo_Robotico_Grupo3.ipynb)** y elegir **Entorno de ejecución → Ejecutar todas**. La captura de Wokwi ya está incluida; no hace falta subir archivos para la primera reproducción.
-- [Ver el notebook en GitHub](Brazo_Robotico_Grupo3.ipynb).
-- [Descargar el video MP4](salidas/brazo.mp4?raw=true).
-- [Descargar el reproductor HTML](salidas/brazo_interactivo.html?raw=true). Guardarlo y abrirlo en el navegador: incluye los cuadros y controles y funciona sin internet.
-- [Consultar el proyecto original en Wokwi](https://wokwi.com/projects/477503605988146177).
+- [Descargar el reproductor HTML](salidas/brazo_interactivo.html?raw=true), guardarlo y abrirlo en Chrome o Edge. Luego presionar ▶. Funciona sin internet y permite pausar o recorrer los cuadros.
+- [Ver o descargar el video MP4](salidas/brazo.mp4?raw=true).
+- [Abrir el notebook en Colab desde GitHub](https://colab.research.google.com/github/federicosolerup/brazo-robotico-arduino-wokwi/blob/main/Brazo_Robotico_Grupo3.ipynb) y elegir **Entorno de ejecución → Ejecutar todas**. La captura está incluida. También se puede [leer el notebook en GitHub](Brazo_Robotico_Grupo3.ipynb).
+- [Ver las cinco configuraciones](salidas/) o consultar [el texto sugerido para el informe](TEXTO_PARA_DOCS.md).
 
-GitHub muestra el notebook como documento estático. La animación con controles se ejecuta en Colab o en el HTML descargado.
+El notebook interactivo se ejecuta en Colab o en el HTML descargado; GitHub muestra una vista estática del notebook.
 
-## Qué hace el proyecto
+Esta versión reemplaza el modelo anterior de giro de base y hombro. El repositorio y el enlace público del notebook mantienen sus direcciones anteriores para conservar las referencias del informe.
 
-Al presionar el pulsador se ejecuta esta secuencia:
+## Anatomía y movimientos
 
-| Configuración | Base, D9 | Hombro, D10 |
-|---|---:|---:|
-| P0 · Reposo | 90° | 90° |
-| P1 | 30° | 45° |
-| P2 | 150° | 45° |
-| P3 · Regreso | 90° | 90° |
+| Elemento | Representación |
+|---|---|
+| Hombro | Articulación fija al torso, accionada por el servo de D9 |
+| Húmero | Primer eslabón, de 18 cm ilustrativos |
+| Codo | Articulación transportada por el húmero, accionada por el servo de D10 |
+| Antebrazo | Segundo eslabón, de 15 cm ilustrativos |
+| Muñeca | Extremo del antebrazo y efector final, sin tercer servo |
 
-Cada tramo utiliza una interpolación cúbica de 1500 ms, con velocidad ideal nula al iniciar y terminar:
+La animación usa una vista lateral en un plano vertical. No hay giro de base ni plataforma giratoria.
 
-```text
-s = t / T
-q(t) = q0 + (qf - q0) · (3s² - 2s³)
-```
+El ángulo del hombro se mide respecto de la horizontal. El ángulo del codo es **relativo al húmero**, con 0° como extensión completa del brazo. Por eso, cuando el hombro gira, el codo cambia su ubicación en el espacio y el antebrazo acompaña al húmero, pero la flexión del codo permanece fija. Eso es movimiento mecánico de la cadena, no la activación simultánea de las dos articulaciones.
 
-Hay pausas de 300 ms después de cada tramo, incluida la pausa final presente en el programa original. En el segundo tramo el hombro se mantiene en 45° mientras gira la base, por lo que el extremo describe un arco. Mantener el pulsador presionado no repite el ciclo.
+El servo que mantiene su ángulo conserva su señal de control; no se desconecta durante el ciclo. El objetivo es que las consignas de posición nunca cambien simultáneamente.
 
-## De Wokwi a la animación
+## Secuencia
 
-```text
-Arduino en Wokwi → monitor serie → CSV → cinemática directa → brazo en 3D
-```
+| Tramo | Articulación que se mueve | Hombro | Codo |
+|---|---|---:|---:|
+| P0 · Reposo | Ninguna | 30° | 30° |
+| P0 → P1 | Hombro | 30° → 75° | Fijo en 30° |
+| P1 → P2 | Codo | Fijo en 75° | 30° → 90° |
+| P2 → P3 | Hombro | 75° → 30° | Fijo en 90° |
+| P3 → P4 | Codo | Fijo en 30° | 90° → 30° |
 
-La captura incluida contiene **271 registros**, con una duración observada de **5488 ms**. Se obtuvo ejecutando el [sketch instrumentado](wokwi/sketch.ino) en una sesión temporal del proyecto de Wokwi, sin guardar cambios en el proyecto publicado.
+Cada tramo tiene un perfil cúbico de 1500 ms y una pausa de 300 ms al terminar. Se utiliza `q(t) = q0 + (qf − q0)(3s² − 2s³)`, con `s = t/T`. La velocidad ideal es nula en los extremos; la aceleración no necesariamente lo es.
 
-El registro contiene los mismos ángulos enteros enviados a `Servo.write()`, junto con el tiempo obtenido de `millis()` y la fase de la secuencia:
+El arranque del programa también es escalonado: primero se conecta y posiciona el hombro y se espera 1500 ms; después se conecta y posiciona el codo y se espera otro intervalo de 1500 ms. El pulsador queda listo al terminar esa inicialización. Mantenerlo presionado no repite el ciclo.
+
+## Datos y verificación
+
+Se ejecutaron el nuevo sketch y el nuevo diagrama en Wokwi, usando una sesión temporal del editor del proyecto anterior. No se guardaron cambios ni se publicó un proyecto nuevo de Wokwi. La evidencia de la ejecución está en [salidas/captura_wokwi.png](salidas/captura_wokwi.png).
+
+La captura contiene **363 registros y 7,343 segundos**, con este encabezado:
 
 ```csv
-ciclo,tiempo_ms,base_deg,hombro_deg,fase
-1,0,90,90,inicio
-1,1,90,90,tramo_1
-1,22,89,89,tramo_1
+ciclo,tiempo_ms,hombro_deg,codo_deg,fase
 ```
 
-La visualización mantiene cada consigna hasta la siguiente muestra. La impresión serial agrega una pequeña carga de procesamiento; por eso se utilizan los tiempos registrados, sin suponer intervalos exactamente iguales a 20 ms.
+Se registran los enteros enviados a `Servo.write()`. La impresión serial agrega una pequeña carga; la visualización usa el tiempo real registrado por `millis()` y mantiene cada consigna hasta la siguiente muestra.
 
-Se verificó que las cuatro configuraciones aparecen en orden, el hombro permanece fijo durante el segundo tramo y ambas consignas terminan en 90°. Los resultados están en [verificacion.json](datos/verificacion.json), y la procedencia y las huellas SHA-256 del sketch y del diagrama en [procedencia.json](datos/procedencia.json).
+La verificación compara muestras consecutivas y comprueba que **no cambien a la vez hombro y codo**. También verifica los extremos y la articulación inmóvil de cada tramo, el orden de las cinco configuraciones y el regreso a reposo. El lector rechaza capturas con cambios simultáneos, incluso si ocurren entre filas con la misma marca temporal.
 
-## Modelo cinemático
+- [Captura CSV](datos/captura_wokwi.csv).
+- [Resultados de verificación](datos/verificacion.json).
+- [Procedencia y huellas SHA-256](datos/procedencia.json).
 
-Se representa una base giratoria, un hombro y un único eslabón móvil. Las dimensiones son ilustrativas: altura `h = 8 cm`, desplazamiento fijo `d = 3 cm` entre el eje de la base y el hombro y longitud del brazo `L = 18 cm`.
+## Cinemática directa
 
-Se define X hacia el frente, Y hacia la izquierda del robot y Z hacia arriba. Los ángulos del modelo se relacionan con las consignas como `φ = 90° − base_deg` y `β = hombro_deg`. La posición del extremo se obtiene mediante cinemática directa:
+El hombro se ubica en `(0,h)`, con altura ilustrativa `h = 12 cm`. Si `q1` es el ángulo del hombro y `q2` la flexión del codo:
 
 ```text
-x = (d + L cos β) cos φ
-y = (d + L cos β) sin φ
-z = h + L sin β
+x_codo = L1 cos(q1)
+z_codo = h + L1 sin(q1)
+
+x_muñeca = L1 cos(q1) + L2 cos(q1 + q2)
+z_muñeca = h + L1 sin(q1) + L2 sin(q1 + q2)
+
+L1 = 18 cm (húmero)
+L2 = 15 cm (antebrazo)
 ```
 
-La separación `d` es fija y permite visualizar el giro de la base incluso con el eslabón vertical. El modelo reproduce **órdenes de posición**; no mide la respuesta física de los servos ni calcula torque, cargas o colisiones. Los ángulos enviados están cuantizados en grados enteros.
+Los cálculos convierten los grados a radianes. Las longitudes son ilustrativas, sin medición de un prototipo físico. Se visualizan consignas; no se calculan torque, carga, colisiones ni error de seguimiento de un servo real.
 
-## Ejecutar en el equipo
+## Usar otro registro
 
-Requiere Python 3.10 o posterior. Desde la carpeta del repositorio:
+1. Pegar [wokwi/sketch.ino](wokwi/sketch.ino) en un proyecto Arduino UNO de Wokwi y cargar [wokwi/diagram.json](wokwi/diagram.json).
+2. Mantener la biblioteca `Servo` de [libraries.txt](wokwi/libraries.txt).
+3. Iniciar la simulación y esperar a `# LISTO` antes de presionar el pulsador.
+4. Esperar a `# FIN_CICLO`, copiar el monitor serie con su encabezado y guardarlo como CSV UTF-8.
+5. En el notebook, elegir `MODO = "subir_csv"` o `"pegar_csv"`. El formato anterior de base/hombro no corresponde a esta versión.
 
-```bash
-python -m venv .venv
-# Windows PowerShell:
-.venv\Scripts\Activate.ps1
-# Linux / macOS:
-# source .venv/bin/activate
+## Ejecutar localmente
 
+```powershell
 python -m pip install -r requirements.txt
 python visualizar_brazo.py --csv datos/captura_wokwi.csv --gif --mp4
 ```
 
-La salida se guarda en `salidas/`. El MP4 requiere FFmpeg instalado y disponible en PATH; si no está disponible, omitir `--mp4`. El HTML y el GIF no necesitan FFmpeg. Sin `--csv` se genera una demostración teórica, identificada expresamente como tal.
-
-## Capturar otra ejecución
-
-1. Abrir el proyecto de Wokwi y pegar [wokwi/sketch.ino](wokwi/sketch.ino) en el editor de `sketch.ino`. Conservar las conexiones: D9 a base, D10 a hombro y D2 al pulsador conectado a GND. Se utiliza `INPUT_PULLUP`.
-2. Iniciar la simulación, presionar el pulsador y esperar hasta `# FIN_CICLO`.
-3. Copiar el monitor serie, incluido el encabezado CSV, y guardarlo en UTF-8 con extensión `.csv`.
-4. En Colab, elegir `MODO = "subir_csv"` o `"pegar_csv"`. El notebook también permite elegir un ciclo si se registraron varios.
-
-## Archivos
-
-| Archivo o carpeta | Contenido |
-|---|---|
-| [Brazo_Robotico_Grupo3.ipynb](Brazo_Robotico_Grupo3.ipynb) | Notebook completo, con datos y código de Arduino incluidos |
-| [visualizar_brazo.py](visualizar_brazo.py) | Lectura de CSV, geometría, animación y exportación local |
-| [wokwi/](wokwi/) | Sketch instrumentado, conexionado y dependencia Servo |
-| [datos/](datos/) | Captura, procedencia y verificación |
-| [salidas/](salidas/) | GIF, MP4, HTML, captura de Wokwi y cuatro imágenes para el informe |
-| [LEEME.md](LEEME.md) | Guía detallada y texto sugerido para el trabajo escrito |
+MP4 requiere FFmpeg en PATH. El HTML y el GIF no lo necesitan. Sin `--csv`, se genera una demostración teórica identificada expresamente.
 
 ## Referencias
 
 - Universidad de Palermo. *Trayectorias* e *Implementación de las trayectorias robóticas*. Apuntes del módulo 6 de Introducción a la Robótica.
 - [Monitor serie de Wokwi](https://docs.wokwi.com/guides/serial-monitor).
-- [Servomotor de Wokwi](https://docs.wokwi.com/parts/wokwi-servo).
+- [Servo de Wokwi](https://docs.wokwi.com/parts/wokwi-servo).
 - [Animaciones de Matplotlib](https://matplotlib.org/stable/api/animation_api.html).
-- [Gráficos 3D de Matplotlib](https://matplotlib.org/stable/gallery/mplot3d/index.html).

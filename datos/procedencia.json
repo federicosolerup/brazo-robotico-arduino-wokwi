@@ -1,9 +1,10 @@
 {
-  "proyecto_original": "https://wokwi.com/projects/477503605988146177",
-  "fecha_captura_utc": "2026-10-25T21:58:09.733648+00:00",
-  "metodo": "Ejecucion del sketch instrumentado en Wokwi, en una sesion temporal de Chrome. Lectura del monitor serie despues de presionar el pulsador. No se guardaron cambios en el proyecto publicado.",
-  "origen_datos": "Consignas enteras enviadas a Servo.write(), no mediciones de posicion.",
-  "filas": 271,
-  "sha256_sketch_ino": "a2a13cf5a223adf244429c64951b359e648a85a54877983040f4235a80ec438c",
-  "sha256_diagram_json": "0c012c218e0d9829fe9e388849343d6d76a1e6c7f2c7860d76161b51f20c00c4"
+  "origen": "Ejecucion del nuevo sketch de hombro y codo en Wokwi; no es una captura del proyecto de base giratoria.",
+  "proyecto_usado_como_editor": "https://wokwi.com/projects/477503605988146177",
+  "fecha_captura_utc": "2026-10-25T22:29:01.186786+00:00",
+  "metodo": "Sesion temporal de Chrome: reemplazo del sketch y del diagrama, compilacion, simulacion y pulsacion del boton. No se guardaron cambios en el proyecto publicado.",
+  "filas": 363,
+  "significado": "Consignas de posicion enviadas a Servo.write(); no mediciones fisicas.",
+  "sha256_sketch_ino": "03060102dea76a65f9a4ee096a7f6e04998bdc61b9e9eb69b1b6d221cfe146ea",
+  "sha256_diagram_json": "65fc96de095735235967c9f42c578bc67156f7cd330c1091c8299b14f3cf593d"
 }
