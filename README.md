@@ -1,5 +1,5 @@
 
-# Brazo Robótico de 2 grados de libertad
+# Brazo Robótico
 
 Cadena **hombro → húmero → codo → antebrazo → muñeca**, con dos servomotores, la muñeca es el efector final.
 
