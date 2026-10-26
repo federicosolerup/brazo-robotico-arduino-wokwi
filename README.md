@@ -3,7 +3,7 @@
 
 Cadena **hombro → húmero → codo → antebrazo → muñeca**, con dos servomotores, la muñeca es el efector final.
 
-**PDF:** [05_ActividadGrupal_Mod09_Sensores_Grupo3.pdf](05_ActividadGrupal_Mod09_Sensores_Grupo3.pdf)
+**PDF:** [Abrir informe](05_ActividadGrupal_Mod09_Sensores_Grupo3.pdf)
 
 **Wokwi:** [Abrir simulación](https://wokwi.com/projects/478894577015484417)
 
